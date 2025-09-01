@@ -10,6 +10,7 @@ import Combine
 
 struct TransactionTableView: View {
     @State private var transactions: [Transaction] = []
+    @State private var filteredTransactions: [Transaction] = []
     @State private var sortOrder: [KeyPathComparator<Transaction>] = [
         .init(\.date, order: .reverse) // newest first by default (string date)
     ]
@@ -17,6 +18,7 @@ struct TransactionTableView: View {
     @State private var isLoading = false
     @State private var loadError: String? = nil
     @State private var pendingSaves: [Transaction.ID: DispatchWorkItem] = [:]
+    @State private var filter = "";
     
     let formatter: NumberFormatter = {
         let f = NumberFormatter()
@@ -81,13 +83,13 @@ struct TransactionTableView: View {
                         .onSubmit { scheduleUpdate(for: t) }
                 }
             } rows: {
-                ForEach(transactions) { t in
+                ForEach(filteredTransactions) { t in
                     TableRow(t)
                 }
             }
             .frame(minHeight: 300)
             .onChange(of: sortOrder) { oldValue, newValue in
-                transactions.sort(using: newValue)
+                filteredTransactions.sort(using: newValue)
             }
             .overlay(alignment: .topLeading) {
                 if let loadError { Text(loadError).foregroundStyle(.red).padding(8) }
@@ -96,6 +98,28 @@ struct TransactionTableView: View {
             .refreshable { await loadTransactions() }
         }
         .navigationTitle("Transactions")
+        
+        HStack {
+            TextField("Filter", text: $filter)
+                .frame(width: 200, alignment: .leading)
+                .padding()
+                .onChange(of: filter) {
+                    if filter.isEmpty {
+                        filteredTransactions = transactions
+                    }
+                    else {
+                        let lower = filter.lowercased()
+                        filteredTransactions = transactions.filter {
+                            $0.description.lowercased().contains(lower) ||
+                            $0.category.lowercased().contains(lower) ||
+                            $0.date.lowercased().contains(lower) ||
+                            String($0.amount).lowercased().contains(lower)
+                        }
+                    }
+                }
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, alignment: .bottom)
     }
 
     // MARK: - Data
@@ -109,6 +133,7 @@ struct TransactionTableView: View {
                     switch result {
                     case .success(let txns):
                         self.transactions = txns
+                        self.filteredTransactions = self.transactions
                     case .failure(let error):
                         self.loadError = "Failed to load: \(error.localizedDescription)"
                     }
