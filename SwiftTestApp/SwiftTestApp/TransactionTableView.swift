@@ -13,8 +13,40 @@ struct TransactionTableView: View {
     @State private var sortOrder: [KeyPathComparator<Transaction>] = [
         .init(\.date, order: .reverse) // newest first by default (string date)
     ]
+    @State private var selections = Set<Transaction.ID>()
     @State private var isLoading = false
     @State private var loadError: String? = nil
+    @State private var pendingSaves: [Transaction.ID: DispatchWorkItem] = [:]
+    
+    let formatter: NumberFormatter = {
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        return f
+    }()
+    
+    private func binding(for row: Transaction) -> Binding<Transaction> {
+        guard let idx = transactions.firstIndex(where: { $0.id == row.id }) else {
+            return .constant(row) // non-editable fallback
+        }
+        return $transactions[idx]
+    }
+    
+    private func scheduleUpdate(for row: Transaction) {
+        guard let index = transactions.firstIndex(where: { $0.id == row.id }) else { return }
+        let current = transactions[index]
+
+        pendingSaves[row.id]?.cancel()
+        let work = DispatchWorkItem {
+            API.updateTransaction(current) { result in
+                switch result {
+                case .success: break
+                case .failure(let err): print("Update failed for \(current.id): \(err)")
+                }
+            }
+        }
+        pendingSaves[row.id] = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: work)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -22,28 +54,35 @@ struct TransactionTableView: View {
                 ProgressView("Loading transactions…")
                     .padding()
             }
-
-            Table($transactions, sortOrder: $sortOrder) {
-                TableColumn("Date") { (t: Binding<Transaction>) in
-                    TextField("Date", text: t.date)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+            Table(of: Transaction.self, selection: $selections, sortOrder: $sortOrder) {
+                TableColumn("Date", value: \.date) { (t: Transaction) in
+                    let b = binding(for: t)
+                    TextField("", text: b.date)
+                        .onChange(of: b.date.wrappedValue) { scheduleUpdate(for: t) }
+                        .onSubmit { scheduleUpdate(for: t) }
                 }
-                TableColumn("Description") { (t: Binding<Transaction>) in
-                    TextField("Description", text: t.description)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                TableColumn("Description", value: \.description) { (t: Transaction) in
+                    let b = binding(for: t)
+                    TextField("", text: b.description)
+                        .onChange(of: b.description.wrappedValue) { scheduleUpdate(for: t) }
+                        .onSubmit { scheduleUpdate(for: t) }
                 }
-                TableColumn("Category") { (t: Binding<Transaction>) in
-                    TextField("Category", text: t.category)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                TableColumn("Amount", value: \.amount) { (t: Transaction) in
+                    let b = binding(for: t)
+                    TextField("Amount", value: b.amount, formatter: formatter)
+                        .multilineTextAlignment(.trailing)
+                        .onChange(of: b.amount.wrappedValue) { scheduleUpdate(for: t) }
+                        .onSubmit { scheduleUpdate(for: t) }
                 }
-                TableColumn("Amount") { (t: Binding<Transaction>) in
-                    TextField("Amount", text: Binding(
-                        get: { String(t.amount) },
-                        set: { t.amount = Double($0) ?? t.amount }
-                    ))
+                TableColumn("Category", value: \.category) { (t: Transaction) in
+                    let b = binding(for: t)
+                    TextField("", text: b.category)
+                        .onChange(of: b.category.wrappedValue) { scheduleUpdate(for: t) }
+                        .onSubmit { scheduleUpdate(for: t) }
+                }
+            } rows: {
+                ForEach(transactions) { t in
+                    TableRow(t)
                 }
             }
             .frame(minHeight: 300)
