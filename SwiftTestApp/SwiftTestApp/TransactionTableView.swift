@@ -57,17 +57,19 @@ struct TransactionTableView: View {
                     .padding()
             }
             Table(of: Transaction.self, selection: $selections, sortOrder: $sortOrder) {
-                TableColumn("Date", value: \.date) { (t: Transaction) in
+                TableColumn(Text("Date"), value: \.date) { (t: Transaction) in
                     let b = binding(for: t)
                     TextField("", text: b.date)
                         .onChange(of: b.date.wrappedValue) { scheduleUpdate(for: t) }
                         .onSubmit { scheduleUpdate(for: t) }
+                        .appText(.body)
                 }
                 TableColumn("Description", value: \.description) { (t: Transaction) in
                     let b = binding(for: t)
                     TextField("", text: b.description)
                         .onChange(of: b.description.wrappedValue) { scheduleUpdate(for: t) }
                         .onSubmit { scheduleUpdate(for: t) }
+                        .appText(.body)
                 }
                 TableColumn("Amount", value: \.amount) { (t: Transaction) in
                     let b = binding(for: t)
@@ -75,12 +77,14 @@ struct TransactionTableView: View {
                         .multilineTextAlignment(.trailing)
                         .onChange(of: b.amount.wrappedValue) { scheduleUpdate(for: t) }
                         .onSubmit { scheduleUpdate(for: t) }
+                        .appText(.body)
                 }
                 TableColumn("Category", value: \.category) { (t: Transaction) in
                     let b = binding(for: t)
                     TextField("", text: b.category)
                         .onChange(of: b.category.wrappedValue) { scheduleUpdate(for: t) }
                         .onSubmit { scheduleUpdate(for: t) }
+                        .appText(.body)
                 }
             } rows: {
                 ForEach(filteredTransactions) { t in
