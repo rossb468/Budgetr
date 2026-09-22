@@ -20,6 +20,9 @@ struct TransactionTableView: View {
     @State private var pendingSaves: [Transaction.ID: DispatchWorkItem] = [:]
     @State private var filter = "";
     
+    @State private var draftID: Transaction.ID? = nil
+    @State private var draftError: String? = nil
+    
     let formatter: NumberFormatter = {
         let f = NumberFormatter()
         f.numberStyle = .decimal
@@ -49,6 +52,55 @@ struct TransactionTableView: View {
         pendingSaves[row.id] = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: work)
     }
+    
+    private func addDraftRow() {
+        let draft = Transaction(id: UUID().uuidString, date: "", description: "", amount: 0.0, category: "")
+        transactions.insert(draft, at: transactions.count)
+        filteredTransactions = transactions
+        selections = [draft.id]
+        draftID = draft.id
+        draftError = nil
+    }
+    
+    private func tryCommitDraft(_ row: Transaction) {
+        guard draftID == row.id else { return }
+        
+        // Resolve the most recent values from the source of truth
+        guard let idx = transactions.firstIndex(where: { $0.id == row.id }) else { return }
+        let current = transactions[idx]
+        
+        // Simple validation – adjust to your schema as needed
+        if current.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            draftError = "Description is required"
+            return
+        }
+        if current.date.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            draftError = "Date is required"
+            return
+        }
+        if current.category.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            draftError = "Category is required"
+            return
+        }
+        if current.amount.isNaN || current.amount == 0 { // choose your rule
+            draftError = "Amount must be non-zero"
+            return
+        }
+        
+        draftError = nil
+        API.postTransaction(current) { result in
+            switch result {
+            case .success:
+                DispatchQueue.main.async {
+                    draftID = nil
+                }
+            case .failure(let err):
+                DispatchQueue.main.async {
+                    draftError = "Save failed: \(err.localizedDescription)"
+                }
+            }
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -60,30 +112,46 @@ struct TransactionTableView: View {
                 TableColumn(Text("Date"), value: \.date) { (t: Transaction) in
                     let b = binding(for: t)
                     TextField("", text: b.date)
-                        .onChange(of: b.date.wrappedValue) { scheduleUpdate(for: t) }
-                        .onSubmit { scheduleUpdate(for: t) }
+                        .onChange(of: b.date.wrappedValue) {
+                            if draftID != t.id { scheduleUpdate(for: t) }
+                        }
+                        .onSubmit {
+                            if draftID == t.id { tryCommitDraft(t) } else { scheduleUpdate(for: t) }
+                        }
                         .appText(.body)
                 }
                 TableColumn("Description", value: \.description) { (t: Transaction) in
                     let b = binding(for: t)
                     TextField("", text: b.description)
-                        .onChange(of: b.description.wrappedValue) { scheduleUpdate(for: t) }
-                        .onSubmit { scheduleUpdate(for: t) }
+                        .onChange(of: b.date.wrappedValue) {
+                            if draftID != t.id { scheduleUpdate(for: t) }
+                        }
+                        .onSubmit {
+                            if draftID == t.id { tryCommitDraft(t) } else { scheduleUpdate(for: t) }
+                        }
                         .appText(.body)
                 }
                 TableColumn("Amount", value: \.amount) { (t: Transaction) in
                     let b = binding(for: t)
                     TextField("Amount", value: b.amount, formatter: formatter)
                         .multilineTextAlignment(.trailing)
-                        .onChange(of: b.amount.wrappedValue) { scheduleUpdate(for: t) }
-                        .onSubmit { scheduleUpdate(for: t) }
+                        .onChange(of: b.amount.wrappedValue) {
+                            if draftID != t.id { scheduleUpdate(for: t) }
+                        }
+                        .onSubmit {
+                            if draftID == t.id { tryCommitDraft(t) } else { scheduleUpdate(for: t) }
+                        }
                         .appText(.body)
                 }
                 TableColumn("Category", value: \.category) { (t: Transaction) in
                     let b = binding(for: t)
                     TextField("", text: b.category)
-                        .onChange(of: b.category.wrappedValue) { scheduleUpdate(for: t) }
-                        .onSubmit { scheduleUpdate(for: t) }
+                        .onChange(of: b.category.wrappedValue) {
+                            if draftID != t.id { scheduleUpdate(for: t) }
+                        }
+                        .onSubmit {
+                            if draftID == t.id { tryCommitDraft(t) } else { scheduleUpdate(for: t) }
+                        }
                         .appText(.body)
                 }
             } rows: {
@@ -101,12 +169,17 @@ struct TransactionTableView: View {
             .task { await loadTransactions() }
             .refreshable { await loadTransactions() }
         }
+        .tableStyle(.inset)
         .navigationTitle("Transactions")
+        
+        Divider()
         
         HStack {
             TextField("Filter", text: $filter)
+                .textFieldStyle(.roundedBorder)     // gives internal insets
+                .controlSize(.extraLarge)
+                .padding(16)
                 .frame(width: 200, alignment: .leading)
-                .padding()
                 .onChange(of: filter) {
                     if filter.isEmpty {
                         filteredTransactions = transactions
@@ -122,8 +195,21 @@ struct TransactionTableView: View {
                     }
                 }
             Spacer()
+            Button("Add Transaction") {
+                // TODO: implement action
+                addDraftRow()
+                print("Add Transaction tapped")
+            }
+            .padding(.trailing)
+            .buttonStyle(.borderedProminent)
         }
         .frame(maxWidth: .infinity, alignment: .bottom)
+        if let draftError {
+            Text(draftError)
+                .foregroundStyle(.red)
+                .font(.footnote)
+                .padding([.leading, .bottom])
+        }
     }
 
     // MARK: - Data
